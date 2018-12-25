@@ -1,0 +1,5 @@
+name: SaveStateDupePatch
+main: com.sasha.savestatedupepatch.Main
+version: 1.0
+description: "Attempts to patch a dupe exploit that involves overloading chunk savestates."
+author: "Sasha"
