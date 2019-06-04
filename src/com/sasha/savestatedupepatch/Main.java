@@ -1,12 +1,15 @@
 package com.sasha.savestatedupepatch;
 
 import org.bukkit.Material;
+import org.bukkit.block.BlockState;
+import org.bukkit.block.Chest;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryMoveItemEvent;
 import org.bukkit.event.inventory.InventoryOpenEvent;
 import org.bukkit.event.player.PlayerEditBookEvent;
+import org.bukkit.event.world.ChunkUnloadEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.BookMeta;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -16,9 +19,9 @@ import java.util.List;
 /**
  * Minecraft's chunk format contains a bug that causes the chunk not to save when
  * there are items with overloaded NBT (like books) in a container together.
- *
+ * <p>
  * This can be exploited to duplicate the contents (including containers and placed blocks) of an entire chunk
- *
+ * <p>
  * This plugin attempts to fix this by reverting awkwardly large books to a reasonable size.
  *
  * @author Sasha Stevens
@@ -64,11 +67,36 @@ public class Main extends JavaPlugin implements Listener {
             if (item == null) continue;
             if (item.getType() == Material.BOOK_AND_QUILL || item.getType() == Material.WRITTEN_BOOK) {
                 BookMeta meta = (BookMeta) item.getItemMeta();
-                BookMeta newestMeta = meta;
-                for (int i = 0; i < meta.getPages().size(); i++) {
-                    newestMeta.setPage(i + 1, "Previously saved book content was too big!");
+                if (getPayloadBytes(meta.getPages()) > 28000) {
+                    for (int i = 0; i < meta.getPages().size(); i++) {
+                        meta.setPage(i + 1, "Previously saved book content was too big!");
+                    }
+                    item.setItemMeta(meta);
                 }
-                item.setItemMeta(newestMeta);
+
+            }
+        }
+    }
+
+    /**
+     * this might make server lag - run on seperate thread?
+     */
+    @EventHandler
+    public void onChunkClose(ChunkUnloadEvent e) {
+        for (BlockState tileEntity : e.getChunk().getTileEntities()) {
+            if (tileEntity.getBlock() instanceof Chest) {
+                Chest chest = (Chest) tileEntity.getBlock();
+                long totalSizeBytes = 0;
+                for (ItemStack itemStack : chest.getInventory()) {
+                    if (itemStack.getType() == Material.BOOK_AND_QUILL || itemStack.getType() == Material.WRITTEN_BOOK) {
+                        BookMeta meta = (BookMeta) itemStack.getItemMeta();
+                        totalSizeBytes += getPayloadBytes(meta.getPages());
+                    }
+                }
+                if (totalSizeBytes > 900000) {
+                    System.out.println("chest @ " + tileEntity.getLocation().getBlockX() + " " + tileEntity.getLocation().getBlockY() + " " + tileEntity.getLocation().getBlockZ() + " was overloaded at " + totalSizeBytes + "bytes");
+                    chest.getInventory().clear();
+                }
             }
         }
     }
@@ -81,15 +109,18 @@ public class Main extends JavaPlugin implements Listener {
     public void onBookMove(InventoryMoveItemEvent e) { // called when a hopper transports an item
         if (e.getItem().getType() == Material.BOOK_AND_QUILL || e.getItem().getType() == Material.WRITTEN_BOOK) {
             BookMeta meta = (BookMeta) e.getItem().getItemMeta();
-            for (int i = 0; i < meta.getPages().size(); i++) {
-                meta.setPage(i + 1, "Previously saved book content was too big!");
+            if (getPayloadBytes(meta.getPages()) > 28000) {
+                for (int i = 0; i < meta.getPages().size(); i++) {
+                    meta.setPage(i + 1, "Previously saved book content was too big!");
+                }
+                e.getItem().setItemMeta(meta);
             }
-            e.getItem().setItemMeta(meta);
         }
     }
 
     /**
      * Gets the total bytes of a book
+     *
      * @param bookPages the list of strings that each page contains
      * @return the length in bytes
      */
